@@ -10,9 +10,15 @@
 
 @interface ViewController ()
 
+/* 剩余火车票数 */
+@property (nonatomic, assign) int ticketSurplusCount;
+
 @end
 
 @implementation ViewController
+{
+    dispatch_semaphore_t semaphoreLock;
+}
 
 - (void)viewDidLoad {
     [super viewDidLoad];
@@ -67,9 +73,13 @@
 
     /******** GCD 信号量：dispatch_semaphore ********/
 //   semaphore 线程同步    【异步执行耗时任务，并使用异步执行的结果进行一些额外的操作】
-    [self semaphoreSync];
+//    [self semaphoreSync];
  
     
+//    [self initTicketStatusNotSave];
+    
+    
+    [self initTicketStatusSave];
 }
 
 #pragma mark - GCD方法
@@ -488,7 +498,7 @@
  *
  *  dispatch_semaphore_signal  信号量+1
  *  dispatch_semaphore_wait    信号量-1
- *  dispatch_semaphore_wait    信号量不小于1的时候则继续执行
+ *  dispatch_semaphore_t    信号量不等于0则继续执行 //不能小于0
  */
 - (void)semaphoreSync
 {
@@ -513,13 +523,127 @@
 
 }
 
-
 #pragma mark - 线程安全
 
+/**
+* 非线程安全：不使用 semaphore
+* 初始化火车票数量、卖票窗口(非线程安全)、并开始卖票
+*/
+-(void)initTicketStatusNotSave
+{
+    NSLog(@"currentThread---%@",[NSThread currentThread]);  // 打印当前线程
+    NSLog(@"semaphore---begin");
+    
+    self.ticketSurplusCount = 50;//50张票
+    
+    //queue1 窗口一
+    dispatch_queue_t queue1=dispatch_queue_create("txm", DISPATCH_QUEUE_SERIAL);
+    //queue2 窗口二
+    dispatch_queue_t queue2=dispatch_queue_create("txm", DISPATCH_QUEUE_SERIAL);
+    
+    __weak typeof(self)weakSelf = self;
+    dispatch_async(queue1, ^{
+        [weakSelf saleTicketNotSafe];
+    });
+    
+    dispatch_async(queue2, ^{
+        [weakSelf saleTicketNotSafe];
+    });
+    
+}
+
+/**
+ * 售卖火车票(非线程安全)
+ */
+-(void)saleTicketNotSafe
+{
+    
+    while (1) {
+        
+        if (self.ticketSurplusCount>0) {
+            self.ticketSurplusCount--;
+            
+            NSLog(@"%@",[NSString stringWithFormat:@"剩余票数：%d 窗口：%@", self.ticketSurplusCount, [NSThread currentThread]]);
+            
+            [NSThread sleepForTimeInterval:0.2];
+        }else{
+            NSLog(@"所有火车票均已售完");
+            break;
+        }
+    }
+    
+    NSLog(@"啊啊啊啊啊啊啊啊啊啊");
+    
+}
 
 
+/**
+ * 线程安全：使用 semaphore 加锁
+ * 初始化火车票数量、卖票窗口(线程安全)、并开始卖票
+ */
+- (void)initTicketStatusSave
+{
+    NSLog(@"currentThread---%@",[NSThread currentThread]);  // 打印当前线程
+    NSLog(@"semaphore---begin");
+    semaphoreLock = dispatch_semaphore_create(1);
+    
+    self.ticketSurplusCount = 500;//50张票
+
+    dispatch_queue_t queue1 = dispatch_queue_create("txm1", DISPATCH_QUEUE_SERIAL);
+    
+    dispatch_queue_t queue2 = dispatch_queue_create("txm2", DISPATCH_QUEUE_SERIAL);
+
+    __weak typeof(self)weakSelf = self;
+    
+    dispatch_async(queue1, ^{
+        
+        [weakSelf saleTicketSafe];
+        
+    });
+    
+    dispatch_async(queue2, ^{
+        
+        [weakSelf saleTicketSafe];
+
+    });
+    
+}
 
 
+-(void)saleTicketSafe
+{
+    while (1) {
+        
+        dispatch_semaphore_wait(semaphoreLock, DISPATCH_TIME_FOREVER);//相当于加锁
+        
+        if (self.ticketSurplusCount > 0) {
+            
+            self.ticketSurplusCount--;
+            
+            NSLog(@"剩余【%d】张票，窗口【%@】",self.ticketSurplusCount,[NSThread currentThread]);
+            
+            [NSThread sleepForTimeInterval:1];
+            
+        }else{
+            NSLog(@"火车票已经售完");
+            
+            dispatch_semaphore_signal(semaphoreLock);//相当于解锁
+            
+            break;
+        }
+        
+        dispatch_semaphore_signal(semaphoreLock);//相当于解锁
+        
+    }
+ 
+    NSLog(@"啊啊啊啊啊啊啊啊啊啊");
+    
+}
+
+
+//*  dispatch_semaphore_signal  信号量+1
+//*  dispatch_semaphore_wait    信号量-1
+//*  dispatch_semaphore_wait    信号量不小于1的时候则继续执行
 
 
 @end
